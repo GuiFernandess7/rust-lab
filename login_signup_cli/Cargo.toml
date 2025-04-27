@@ -1,0 +1,9 @@
+[package]
+name = "sum_two_values"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = "4.0"
+regex = "1.11.1"
+rpassword = "5.0.0"
