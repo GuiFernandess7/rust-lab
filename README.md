@@ -1,5 +1,7 @@
 # Rust Lab
 
+![rust](https://github.com/user-attachments/assets/e8d27cb7-157c-4922-9b92-be8777abd578)
+
 Repo with practice exercises, small projects, and code snippets.
 
 **Content:**
