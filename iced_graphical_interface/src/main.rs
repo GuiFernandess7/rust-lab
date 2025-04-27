@@ -1,4 +1,4 @@
-use iced::{Alignment, Command, Element, Sandbox, Settings};
+use iced::{Element, Sandbox, Settings};
 use ::iced::theme::Theme;
 use iced::widget::Text;
 
