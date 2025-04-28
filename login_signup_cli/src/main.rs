@@ -1,14 +1,11 @@
 use core::panic;
+use std::collections::HashMap;
 use std::io::{self, Write};
 use std::env;
 use rpassword::read_password;
+use std::fs;
 use regex::Regex;
-
-enum Status {
-    SUCCESS,
-    ERROR,
-}
-
+use bcrypt::{hash, DEFAULT_COST};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -24,7 +21,9 @@ fn main() {
     }
 }
 
-fn signup(){
+fn signup() -> (){
+    let mut users: Vec<HashMap<String, &str>> = vec![];
+    let mut user: HashMap<String, &str> = HashMap::new();
     let email= read_input("Email");
     match validate_email(&email) {
         Ok(_) => println!("Choose your password."),
@@ -44,32 +43,50 @@ fn signup(){
             return;
         }
     }
-}
 
-fn login(){
-    let password = prompt_password("mypwd");
-    match password {
-        Status::SUCCESS => println!("Logged sucessfully."),
-        Status::ERROR => println!("Error logging in.")
+    match hash_password(&password) {
+        Ok(hashed_password) => {
+            user.insert(email, hashed_password.as_str());
+            users.push(user);
+            update_users(users);
+        }
+        Err(e) => {
+            println!("Error hashing password: {}", e);
+        }
     }
 }
 
+fn login(){
+    let email = read_input("Email: ");
+    std::io::stdout().flush().expect("Error cleaning buffer.");
+    let password = read_password().expect("Failed to read password.");
+    let password = hash_password(&password).expect("Error hashing password");
+    //verify_password(stored_hash, password);
+
+}
+
+fn hash_password(password: &str) -> Result<String, bcrypt::BcryptError> {
+    hash(password, DEFAULT_COST)
+}
+
 #[allow(dead_code)]
-fn prompt_password(target_value: &str) -> Status{
+fn verify_password(stored_hash: &str, password: &str) -> Result<bool, bcrypt::BcryptError> {
+    bcrypt::verify(password, stored_hash)
+}
+
+#[allow(dead_code)]
+fn prompt_password() -> Result<String, String>{
     const MAX_ATTEMPTS: u8 = 3;
     let mut attempts: u8 = 0;
     let result = loop {
         print!("Password: ");
         std::io::stdout().flush().expect("Error cleaning buffer.");
-        let input: String = read_password().expect("Falha ao ler a senha");
-
-        if input == target_value {
-            break Status::SUCCESS;
-        }
+        //let input: String = read_password().expect("Falha ao ler a senha");
 
         if attempts == MAX_ATTEMPTS {
-            break Status::ERROR;
+            break Err("Try too many times. Try again later.".to_string());
         }
+
         println!("Wrong password. Try again.");
         attempts += 1;
     };
@@ -87,6 +104,17 @@ fn read_input(prompt: &str) -> String {
         .expect("Falha ao ler a linha");
 
     input.trim().to_string()
+}
+
+fn update_users(users: Vec<HashMap<String, &str>>) -> () {
+    match serde_json::to_string_pretty(&users) {
+        Ok(json_str) => {
+            if let Err(e) = fs::write("users.json", json_str) {
+                eprintln!("Erro ao salvar arquivo: {}", e);
+            }
+        },
+        Err(e) => eprintln!("Erro ao serializar JSON: {}", e),
+    }
 }
 
 fn validate_email(email: &str) -> Result<(), String> {
