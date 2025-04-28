@@ -52,7 +52,7 @@ fn validate_password(password: &str) -> Result<String, Status> {
 }
 
 fn regex_password_validator(password: &str) -> bool{
-    let re = Regex::new(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*\W).+$").unwrap();
+    let re = Regex::new(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*\W).{8,12}$").unwrap();
 
     if re.is_match(password) {
         return true;

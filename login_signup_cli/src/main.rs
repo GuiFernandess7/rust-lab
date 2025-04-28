@@ -4,10 +4,6 @@ use std::env;
 use rpassword::read_password;
 use regex::Regex;
 
-//let mut my_vec = vec![56, 82, 12, 23, 15, 99, 51, 35, 41, 27];
-//remove_value_from_array2(&mut my_vec, 35);
-//let value_exists = search_for_value(&mut my_vec, 15);
-
 enum Status {
     SUCCESS,
     ERROR,
@@ -31,18 +27,23 @@ fn main() {
 fn signup(){
     let email= read_input("Email");
     match validate_email(&email) {
-        Ok(_) => {},
+        Ok(_) => println!("Choose your password."),
         Err(err) => {
             println!("{}", err);
             return;
         }
     }
 
-    print!("Password: ");
     std::io::stdout().flush().expect("Error cleaning buffer.");
-    let password = read_password().expect("Falha ao ler a senha");
-    validate_password(password.as_str());
-    println!("Hi {}, your account has been created!", email);
+    let password = read_password().expect("Failed to read password.");
+
+    match validate_password(&password) {
+        Ok(_) => println!("Hi {}, your account has been created!", email),
+        Err(err) => {
+            println!("{}", err);
+            return;
+        }
+    }
 }
 
 fn login(){
@@ -79,7 +80,7 @@ fn read_input(prompt: &str) -> String {
     let mut input = String::new();
 
     print!("{}: ", prompt);
-    io::stdout().flush().expect("Falha ao limpar o buffer de saída");
+    io::stdout().flush().expect("Failed cleaning buffer");
 
     io::stdin()
         .read_line(&mut input)
@@ -102,7 +103,16 @@ fn validate_email(email: &str) -> Result<(), String> {
     }
 }
 
-#[allow(dead_code)]
-fn validate_password(password: &str){
-    print!("{}", password);
+fn validate_password(password: &str) -> Result<(), String> {
+    let has_lowercase = password.chars().any(|c| c.is_lowercase());
+    let has_uppercase = password.chars().any(|c| c.is_uppercase());
+    let has_digit = password.chars().any(|c| c.is_digit(10));
+    let has_special = password.chars().any(|c| "!@#$^&*()_+".contains(c));
+
+    let min_length  = 8;
+    if password.len() < min_length || !has_lowercase || !has_uppercase || !has_digit || !has_special {
+        return Err("Invalid password. Must have uppercase, lowercase letters, symbols and numbers.".to_string());
+    } else {
+        return Ok(());
+    }
 }
