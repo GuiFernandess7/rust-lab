@@ -2,36 +2,81 @@ use core::panic;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::env;
-use rpassword::read_password;
 use std::fs;
-use regex::Regex;
 use bcrypt::{hash, DEFAULT_COST, verify};
+use rpassword::read_password;
 
 pub struct Auth {
     email: String,
     password: String,
+    validator: Validator,
+    cli: Cli,
 }
 
-impl Auth {
-    pub fn validate_email(&self) -> Result<(), String> {
-        let email_regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+pub struct Validator;
+pub struct Cli;
+enum LoginError {
+    InvalidPassword,
+    GenericError(String),
+}
+
+enum SignUpError {
+    InvalidEmail,
+    InvalidPassword,
+    GenericError(String),
+}
+
+impl Cli {
+    fn read_generic_input(&self, prompt: &str) -> String {
+        let mut input = String::new();
+
+        print!("{}: ", prompt);
+        io::stdout().flush().expect("Failed cleaning buffer");
+
+        io::stdin()
+            .read_line(&mut input)
+            .expect("Failed to read line");
+
+        input.trim().to_string()
+    }
+
+    fn read_password_input(&self, prompt: &str) -> Result<String, std::io::Error> {
+        print!("{}: ", prompt);
+        io::stdout().flush()?;
+        read_password()
+    }
+
+    fn read_email_input(&self) -> String {
+        self.read_generic_input("Email")
+    }
+}
+
+
+impl Validator {
+
+    pub fn new() -> Cli {
+        Cli {}
+    }
+
+    pub fn validate_email(&self, email: &str) -> Result<(), String> {
+        let email_regex = regex::Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
             .map_err(|_| "Invalid regex pattern".to_string())?;
 
-        if !email_regex.is_match(&self.email) {
+        if !email_regex.is_match(email) {
             Err("Invalid email!".to_string())
         } else {
             Ok(())
         }
     }
 
-    pub fn validate_password(&self) -> Result<(), String> {
-        let has_lowercase = self.password.chars().any(|c| c.is_lowercase());
-        let has_uppercase = self.password.chars().any(|c| c.is_uppercase());
-        let has_digit = self.password.chars().any(|c| c.is_digit(10));
-        let has_special = self.password.chars().any(|c| c.is_ascii_punctuation());
+    pub fn validate_password(&self, password: &str) -> Result<(), String> {
+        let has_lowercase = password.chars().any(|c| c.is_lowercase());
+        let has_uppercase = password.chars().any(|c| c.is_uppercase());
+        let has_digit = password.chars().any(|c| c.is_digit(10));
+        let has_special = password.chars().any(|c| c.is_ascii_punctuation());
 
         let min_length = 8;
-        if self.password.len() < min_length
+        if password.len() < min_length
             || !has_lowercase
             || !has_uppercase
             || !has_digit
@@ -43,121 +88,96 @@ impl Auth {
         Ok(())
     }
 
-    pub fn verify_password(&self, stored_hash: &str) -> Result<bool, bcrypt::BcryptError> {
-        verify(self.password.as_str(), stored_hash)
+    pub fn hash_password(&self, password: &str) -> Result<String, bcrypt::BcryptError> {
+        hash(password, DEFAULT_COST)
     }
 
-    pub fn hash_password(&self) -> Result<String, bcrypt::BcryptError> {
-        hash(self.password.as_str(), DEFAULT_COST)
-    }
-}
-
-fn main() {
-    let args: Vec<String> = env::args().collect();
-
-    if let Some(value) = args.get(1) {
-        match value.as_str() {
-            "login" => login(),
-            "signup" => signup(),
-            _ => panic!("Error: Invalid option!")
-        }
-    } else {
-        panic!("Error: No option provided!");
+    pub fn verify_password(&self, password: &str, stored_hash: &str) -> Result<bool, bcrypt::BcryptError> {
+        verify(password, stored_hash)
     }
 }
 
-fn signup() -> (){
-    let email= read_input("Email");
 
-    let mut auth: Auth = Auth { email: email.clone(), password: String::new() };
+impl Auth {
 
-    match auth.validate_email() {
-        Ok(_) => println!("Choose your password."),
-        Err(err) => {
-            println!("{}", err);
-            return;
+    pub fn new(email: String, password: String) -> Auth {
+        let validator = Validator {};
+        let cli = Cli {};
+        Auth {
+            email,
+            password,
+            validator,
+            cli,
         }
     }
 
-    std::io::stdout().flush().expect("Error cleaning buffer.");
-    let password = read_password().expect("Failed to read password.");
-    auth.password = password.clone();
+    fn signup(&mut self) -> Result<(), SignUpError>{
+        match self.validator.validate_email(&self.email) {
+            Ok(_) => println!("Choose your password."),
+            Err(err) => {
+                println!("{}", err);
+                return Err(SignUpError::InvalidEmail);
+            }
+        }
 
-    match auth.validate_password() {
-        Ok(_) => println!("Hi {}, your account has been created!", email),
-        Err(err) => {
-            println!("{}", err);
-            return;
+        match self.validator.validate_password(&self.password) {
+            Ok(_) => println!("Hi {}, your account has been created!", self.email),
+            Err(err) => {
+                println!("{}", err);
+                return Err(SignUpError::InvalidPassword);
+            }
+        }
+
+        match self.validator.hash_password(&self.password) {
+            Ok(hashed_password) => {
+                let mut users: Vec<HashMap<String, String>> = vec![];
+                let mut user: HashMap<String, String> = HashMap::new();
+                user.insert(self.email.clone(), hashed_password);
+                users.push(user);
+                update_users(users);
+                return Ok(());
+            }
+            Err(e) => {
+                println!("Error hashing password: {}", e);
+                return Err(SignUpError::GenericError(format!("Error hashing password: {}", e)));
+            }
         }
     }
 
-    match auth.hash_password() {
-        Ok(hashed_password) => {
-            let mut users: Vec<HashMap<String, &str>> = vec![];
-            let mut user: HashMap<String, &str> = HashMap::new();
-            user.insert(email, hashed_password.as_str());
-            users.push(user);
-            update_users(users);
+    fn login(&mut self) -> Result<(), LoginError> {
+        const MAX_ATTEMPTS: u8 = 3;
+        let mut attempts = 0;
+
+        let stored_hash = self.validator.hash_password("pwdtest").unwrap_or_default();
+
+        while attempts < MAX_ATTEMPTS {
+            match self.validator.verify_password(&self.password, stored_hash.as_str()) {
+                Ok(is_valid) => {
+                    if is_valid {
+                        return Ok(());
+                    } else {
+                        attempts += 1;
+                        println!("Invalid password. Try again.");
+                        let password = match self.cli.read_password_input("Password") {
+                            Ok(password) => password,
+                            Err(_) => return Err(LoginError::GenericError("Error reading password".to_string())),
+                        };
+                        self.password = password;
+                    }
+                }
+                Err(e) => {
+                    return Err(LoginError::GenericError(format!("Error verifying password: {}", e)));
+                }
+            }
         }
-        Err(e) => {
-            println!("Error hashing password: {}", e);
-        }
+
+        Err(LoginError::InvalidPassword)
     }
 }
 
-fn login(){
-    let email = read_input("Email: ");
-    std::io::stdout().flush().expect("Error cleaning buffer.");
-    let typed_password = read_password().expect("Failed to read password.");
-    let typed_password = hash_password(&typed_password).expect("Error hashing password");
-    let auth: Auth = Auth { email: email.clone(), password: typed_password };
-    match auth.verify_password("password") { // TODO: Search for user in JSON file
-        Ok(_) => println!("Password Valid!"),
-        Err(e) => println!("Password does not match: {}", e)
-    }
-}
 
-fn hash_password(password: &str) -> Result<String, bcrypt::BcryptError> {
-    hash(password, DEFAULT_COST)
-}
 
-#[allow(dead_code)]
-fn verify_password(stored_hash: &str, password: &str) -> Result<bool, bcrypt::BcryptError> {
-    bcrypt::verify(password, stored_hash)
-}
-
-#[allow(dead_code)]
-fn prompt_password() -> Result<String, String>{
-    const MAX_ATTEMPTS: u8 = 3;
-    let mut attempts: u8 = 0;
-    let result = loop {
-        print!("Password: ");
-        std::io::stdout().flush().expect("Error cleaning buffer.");
-
-        if attempts == MAX_ATTEMPTS {
-            break Err("Try too many times. Try again later.".to_string());
-        }
-
-        println!("Wrong password. Try again.");
-        attempts += 1;
-    };
-    result
-}
-
-fn read_input(prompt: &str) -> String {
-    let mut input = String::new();
-
-    print!("{}: ", prompt);
-    io::stdout().flush().expect("Failed cleaning buffer");
-
-    io::stdin()
-        .read_line(&mut input)
-        .expect("Falha ao ler a linha");
-
-    input.trim().to_string()
-}
-
-fn update_users(users: Vec<HashMap<String, &str>>) -> () {
+fn update_users(users: Vec<HashMap<String, String>>) -> () {
     match serde_json::to_string_pretty(&users) {
         Ok(json_str) => {
             if let Err(e) = fs::write("users.json", json_str) {
@@ -168,30 +188,34 @@ fn update_users(users: Vec<HashMap<String, &str>>) -> () {
     }
 }
 
-/* fn validate_email(email: &str) -> Result<(), String> {
-    let email_regex = match Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$") {
-        Ok(regex) => regex,
-        Err(_) => return Err("Invalid regex pattern".to_string()),
-    };
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    let cli = Cli {};
 
-    let is_valid_email = email_regex.is_match(email);
-    if !is_valid_email {
-        return Err("Invalid email!".to_string());
-    } else {
-        Ok(())
+    if let Some(value) = args.get(1) {
+        match value.as_str() {
+            "login" => {
+                let email = cli.read_email_input();
+                let password = cli.read_password_input("Password").unwrap_or_default();
+                let mut auth = Auth::new(email, password);
+                match auth.login() {
+                    Ok(_) => println!("Login successful!"),
+                    Err(LoginError::InvalidPassword) => println!("Tried too many times. Try again later."),
+                    Err(LoginError::GenericError(err)) => println!("Error: {}", err),
+                }
+            },
+            "signup" => {
+                let email = cli.read_email_input();
+                let password = cli.read_password_input("Password").unwrap_or_default();
+                let mut auth = Auth::new(email, password);
+                match auth.signup() {
+                    Ok(_) => println!("SignUp successful!"),
+                    Err(SignUpError::InvalidPassword) => println!("Tried too many times. Try again later."),
+                    Err(SignUpError::GenericError(err)) => println!("Error: {}", err),
+                    Err(SignUpError::InvalidEmail) => println!("Invalid email."),
+                }
+            },
+            _ => panic!("Error: Invalid option!")
+        }
     }
 }
-
-fn validate_password(password: &str) -> Result<(), String> {
-    let has_lowercase = password.chars().any(|c| c.is_lowercase());
-    let has_uppercase = password.chars().any(|c| c.is_uppercase());
-    let has_digit = password.chars().any(|c| c.is_digit(10));
-    let has_special = password.chars().any(|c| "!@#$^&*()_+".contains(c));
-
-    let min_length  = 8;
-    if password.len() < min_length || !has_lowercase || !has_uppercase || !has_digit || !has_special {
-        return Err("Invalid password. Must have uppercase, lowercase letters, symbols and numbers.".to_string());
-    } else {
-        return Ok(());
-    }
-} */
