@@ -9,3 +9,5 @@ Repo with practice exercises, small projects, and code snippets.
 - Algorithms (Two Pointer)
 - CLI Simple apps
 - GUI - Graphical User Interface
+- Networking (SSE - Server Sent Events)
+- API call
